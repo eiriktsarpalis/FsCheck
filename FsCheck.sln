@@ -78,6 +78,8 @@ Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "FsCheck.Portable.Profile78"
 EndProject
 Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "FsCheck.Portable.Profile259", "src\FsCheck.Portable.Profile259\FsCheck.Portable.Profile259.fsproj", "{20F79E8F-C87D-4E6C-AD6C-B16518519292}"
 EndProject
+Project("{F2A71F9B-5D33-465A-A702-920D77279786}") = "FsCheck.Async", "src\FsCheck.Async\FsCheck.Async.fsproj", "{5322F244-38C7-42BB-8456-55CD6F84E00D}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -140,6 +142,10 @@ Global
 		{20F79E8F-C87D-4E6C-AD6C-B16518519292}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{20F79E8F-C87D-4E6C-AD6C-B16518519292}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{20F79E8F-C87D-4E6C-AD6C-B16518519292}.Release|Any CPU.Build.0 = Release|Any CPU
+		{5322F244-38C7-42BB-8456-55CD6F84E00D}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{5322F244-38C7-42BB-8456-55CD6F84E00D}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{5322F244-38C7-42BB-8456-55CD6F84E00D}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{5322F244-38C7-42BB-8456-55CD6F84E00D}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
