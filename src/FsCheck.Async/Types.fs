@@ -29,4 +29,11 @@ and TestOutcome =
     | Falsified
     | Exception of exn
 
-and CounterExample<'T> = { StdGen : StdGen ; Size : int ; Shrinks : ('T * TestOutcome) list }
+and CounterExample<'T> = 
+    { 
+        StdGen : StdGen 
+        Size : int 
+        Value : 'T
+        Outcome : TestOutcome
+        Shrinks : ('T * TestOutcome) list 
+    }

@@ -12,7 +12,7 @@ type CounterExample<'T> with
         | [] -> failwithf "internal error"
 
     member __.ToUntyped =
-        { StdGen = __.StdGen ; Size = __.Size ;
+        { StdGen = __.StdGen ; Size = __.Size ; Value = box __.Value ; Outcome = __.Outcome ;
           Shrinks = __.Shrinks |> List.map (fun (t,s) -> box t, s) }
 
 let runRandomTests (config : AsyncConfig) (arb : Arbitrary<'T>) (property : AsyncProperty<'T>) = async {
@@ -49,7 +49,10 @@ let runRandomTests (config : AsyncConfig) (arb : Arbitrary<'T>) (property : Asyn
             match outcome with
             | Completed -> return None
             | Falsified
-            | Exception _ -> return Some { StdGen = stdGen ; Size = size ; Shrinks = [(value, outcome)] }
+            | Exception _ -> 
+                return Some { 
+                    StdGen = stdGen ; Size = size ; 
+                    Value = value; Outcome = outcome ; Shrinks = [] }
         }
 
         do! runner.Enqueue instanceRunner
