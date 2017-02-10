@@ -5,11 +5,15 @@ open System
 open System.Threading
 open System.Threading.Tasks
 
-let (|Basic|Generic|Array|) (t : Type) =
+let (|Basic|Generic|Array|Pointer|ByRef|) (t : Type) =
     if t.IsGenericType then
         Generic(t.GetGenericTypeDefinition(), t.GetGenericArguments())
     elif t.IsArray then
         Array (t.GetElementType())
+    elif t.IsPointer then
+        Pointer(t.GetElementType())
+    elif t.IsByRef then
+        ByRef(t.GetElementType())
     else
         Basic t
 

@@ -92,24 +92,23 @@ type AsyncPropertyTestCase(diagnosticMessageSink:IMessageSink, defaultMethodDisp
             return summary
         }
 
-
         if not (messageBus.QueueMessage(new TestStarting(test))) then
             cancellationTokenSource.Cancel() |> ignore
-
+             
         if not(String.IsNullOrEmpty(this.SkipReason)) then
             summary.Skipped <- summary.Skipped + 1
             if not(messageBus.QueueMessage(new TestSkipped(test, this.SkipReason))) then
                 cancellationTokenSource.Cancel() |> ignore
             Task.Factory.StartNew(fun () -> summary)
         else
-            Async.StartAsTask(testAsync())
+            Async.StartAsTask(testAsync(), cancellationToken = cancellationTokenSource.Token)
 
 
 /// xUnit2 test case discoverer to link the method with the PropertyAttribute to the PropertyTestCase
 /// so the test can be run via FsCheck.
-type PropertyDiscoverer(messageSink:IMessageSink) =
+type AsyncPropertyDiscoverer(messageSink:IMessageSink) =
 
-    new () = PropertyDiscoverer(null)
+    new () = AsyncPropertyDiscoverer(null)
 
     member __.MessageSink = messageSink
 
