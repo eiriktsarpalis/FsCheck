@@ -1,30 +1,27 @@
 ﻿namespace FsCheck.Async
 
+open System
+open System.Reflection
 open System.Threading.Tasks
 
+open FSharp.Reflection
+
 open FsCheck
+open FsCheck.Async
 
 type AsyncCheck =
 
-    static member One(property : 'T -> Async<'S>, ?config : AsyncConfig, ?arb : Arbitrary<'T>) = async {
-        let property' t = async {
-            let! result = property t |> Async.Catch
-            return
-                match result with
-                | Choice1Of2 (Bool false) -> Falsified
-                | Choice1Of2 _ -> Completed
-                | Choice2Of2 e -> Exception e
+    static member One(property : 'T -> 'S, ?config : AsyncConfig, ?arb : Arbitrary<'T>) = async {
+        let func = extractPropertyTest property
+        return! runPropertyTestAsync config arb func
+    }
+
+    static member Method(methodInfo:MethodInfo, ?config : AsyncConfig, ?target : obj) = async {
+        let shape, func = extractProperty target methodInfo
+        return! shape.Accept { new IFunc<Async<CounterExample<string> option>> with
+            member __.Invoke<'T>() = async {
+                let! result = runPropertyTestAsync config None (func :?> AsyncProperty<'T>)
+                return result |> Option.map (fun r -> r.ToUntyped)
+            }
         }
-
-        return! runPropertyTestAsync config arb property'
-    }
-
-    static member One(property : 'T -> Task<'S>, ?config : AsyncConfig, ?arb : Arbitrary<'T>) = async {
-        return! AsyncCheck.One((fun t -> async { return! Async.AwaitTaskCorrect(property t) }), 
-                                    ?config = config, ?arb = arb)
-    }
-
-    static member One(property : 'T -> Task, ?config : AsyncConfig, ?arb : Arbitrary<'T>) = async {
-        return! AsyncCheck.One((fun t -> async { return! Async.AwaitTaskCorrect(property t) }), 
-                                    ?config = config, ?arb = arb)
     }

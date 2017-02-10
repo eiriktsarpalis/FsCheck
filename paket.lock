@@ -8,7 +8,7 @@ NUGET
       Argu (>= 3.2)
       FSharp.Core (>= 3.1.2.5)
       Mono.Cecil (>= 0.9.6.4)
-    FAKE (4.48)
+    FAKE (4.50)
     FSharp.Compiler.Service (2.0.0.6)
     FSharp.Core (4.0.1.7-alpha)
       Microsoft.NETCore.Platforms (>= 1.0.1) - framework: >= net463, >= netstandard16
@@ -82,7 +82,7 @@ NUGET
     NUnit (3.6)
       NETStandard.Library (>= 1.6) - framework: >= net463, >= netstandard16
       System.Runtime.Loader (>= 4.0) - framework: >= net463, >= netstandard16
-    NUnit3TestAdapter (3.6.0) - version_in_path: true
+    NUnit3TestAdapter (3.7.0) - version_in_path: true
     runtime.debian.8-x64.runtime.native.System.Security.Cryptography.OpenSsl (4.3) - framework: >= net463, >= netstandard16
     runtime.fedora.23-x64.runtime.native.System.Security.Cryptography.OpenSsl (4.3) - framework: >= net463, >= netstandard16
     runtime.fedora.24-x64.runtime.native.System.Security.Cryptography.OpenSsl (4.3) - framework: >= net463, >= netstandard16

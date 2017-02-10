@@ -5,8 +5,34 @@ open System
 open System.Threading
 open System.Threading.Tasks
 
+let (|Basic|Generic|Array|) (t : Type) =
+    if t.IsGenericType then
+        Generic(t.GetGenericTypeDefinition(), t.GetGenericArguments())
+    elif t.IsArray then
+        Array (t.GetElementType())
+    else
+        Basic t
+
 let (|Bool|_|) (t : 'T) =
     match box t with :? bool as b -> Some b | _ -> None
+
+type IFunc<'R> =
+    abstract Invoke<'T> : unit -> 'R
+
+[<AbstractClass>]
+type TypeShape() =
+    abstract Type : Type
+    abstract Accept : IFunc<'R> -> 'R
+
+type TypeShape<'T>() =
+    inherit TypeShape()
+    override __.Type = typeof<'T>
+    override __.Accept f = f.Invoke<'T> ()
+
+type TypeShape with
+    static member Create(t : Type) =
+        let shape = typedefof<TypeShape<_>>.MakeGenericType [|t|]
+        Activator.CreateInstance shape :?> TypeShape
 
 [<RequireQualifiedAccess>]
 module Seq =

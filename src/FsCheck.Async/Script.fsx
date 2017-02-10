@@ -5,5 +5,5 @@
 open FsCheck
 open FsCheck.Async
 
-AsyncCheck.One((fun (ts : int[]) -> async { return Array.length ts < 10 }))
+AsyncCheck.One(fun (ts : int[]) -> Array.length ts < 2)
 |> Async.RunSynchronously
