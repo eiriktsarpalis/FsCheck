@@ -68,12 +68,12 @@ type AsyncPropertyTestCase(diagnosticMessageSink:IMessageSink, defaultMethodDisp
                     return
                         match !counterExample with
                         | Some { StdGen = stdGen; Size = size; Shrinks = (value, Falsified) :: _ } ->
-                            let message = sprintf "Test falsified: Value=%s, StdGen=%A, Size=%d" value stdGen size
+                            let message = sprintf "Test falsified: Value=%A, StdGen=%A, Size=%d" value stdGen size
                             summary.Failed <- summary.Failed + 1
                             TestFailed(test, timer.Total, message, exn message) :> TestResultMessage
                         | Some { StdGen = stdGen; Size = size; Shrinks = (value, Exception e) :: _ } ->
                             let message = 
-                                sprintf "Test exception: %O%s Value=%s, StdGen=%A, Size=%d"
+                                sprintf "Test exception: %O%s Value=%A, StdGen=%A, Size=%d"
                                                 e Environment.NewLine value stdGen size
 
                             summary.Failed <- summary.Failed + 1

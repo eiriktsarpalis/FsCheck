@@ -20,8 +20,8 @@ type CounterExample<'T> with
         | [] -> failwithf "internal error"
 
     member __.ToUntyped =
-        { StdGen = __.StdGen ; Size = __.Size ; 
-          Shrinks = __.Shrinks |> List.map (fun (t,s) -> sprintf "%A" t, s) }
+        { StdGen = __.StdGen ; Size = __.Size ;
+          Shrinks = __.Shrinks |> List.map (fun (t,s) -> box t, s) }
 
 let runRandomTests (config : AsyncConfig) (arb : Arbitrary<'T>) (property : AsyncProperty<'T>) = async {
     let seed = match config.Replay with None -> newSeed() | Some s -> s
