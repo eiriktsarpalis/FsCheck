@@ -38,17 +38,6 @@ type TypeShape with
         let shape = typedefof<TypeShape<_>>.MakeGenericType [|t|]
         Activator.CreateInstance shape :?> TypeShape
 
-[<RequireQualifiedAccess>]
-module Seq =
-
-    let takeAtMost (n : int) (ts : seq<'T>) = seq {
-        use enum = ts.GetEnumerator()
-        let count = ref 0
-        while !count < n && enum.MoveNext() do
-            yield enum.Current
-            incr count
-    }
-
 type private Latch() =
     let mutable counter = 0
     member inline __.Enter() = Interlocked.Increment &counter = 1
@@ -93,42 +82,36 @@ type Async with
             |> ignore)
     }
 
-type ThrottledNonDeterministicRunner<'T>(degreeOfParallelism : int) =
+type ThrottledNonDeterministicRunner<'T>(degreeOfParallelism : int, ctoken : CancellationToken) =
     do if degreeOfParallelism < 1 then invalidArg "degreeOfParallelism" "must be nonzero value"
-    let cts = new CancellationTokenSource()
     let semaphore = new SemaphoreSlim(degreeOfParallelism)
     let resultHolder = new TaskCompletionSource<'T>()
-    let mutable numTasks = 0
 
+    // NB: task must be exception safe or we risk killing the process!
     member __.Enqueue(task : Async<'T option>) = async {
-        let! ct = Async.CancellationToken
-        let cts' = CancellationTokenSource.CreateLinkedTokenSource(ct, cts.Token)
-        do! semaphore.WaitAsync ct |> Async.AwaitTaskCorrect
-        let _ = Interlocked.Increment &numTasks
+        do! semaphore.WaitAsync ctoken |> Async.AwaitTaskCorrect
         let worker() = async {
             try
-                try
-                    let! result = task
-                    match result with
-                    | Some t -> resultHolder.TrySetResult t |> ignore
-                    | None -> ()
-                finally
-                    semaphore.Release() |> ignore
-            with _ -> () // workflows passed to Async.Start need to be exception safe
-                         // otherwise we risk killing the process
+                let! result = task
+                match result with
+                | Some t -> resultHolder.TrySetResult t |> ignore
+                | None -> ()
+            finally
+                semaphore.Release() |> ignore
         }
 
-        Async.Start(worker(), cts'.Token)
+        Async.Start(worker(), ctoken)
         return ()
     }
 
     member __.IsCompleted = resultHolder.Task.IsCompleted
-    member __.NumberOfTasks = numTasks
 
     member __.AwaitCompletion() = async {
-        let! ct = Async.CancellationToken
+        // ensure all child tasks have completed by
+        // claiming the entire semaphore capacity
+        // for the current workflow
         for _ in 1 .. degreeOfParallelism do
-            do! semaphore.WaitAsync ct |> Async.AwaitTaskCorrect
+            do! semaphore.WaitAsync ctoken |> Async.AwaitTaskCorrect
 
         if resultHolder.Task.IsCompleted then
             return Some resultHolder.Task.Result
@@ -137,4 +120,4 @@ type ThrottledNonDeterministicRunner<'T>(degreeOfParallelism : int) =
     }
 
     interface IDisposable with
-        member __.Dispose() = semaphore.Dispose() ; cts.Dispose()
+        member __.Dispose() = semaphore.Dispose()

@@ -20,5 +20,22 @@ module Tests =
         predicate x
 
     [<AsyncProperty>]
-    let ``Trisection Principle 2`` (x : int) =
+    let ``Trisection Principle Async`` (x : int) =
         async { return predicate x }
+
+//---------------------------
+// Failing predicate examples
+
+module FailingTests =
+
+    let failingPredicate x =
+        System.Threading.Thread.Sleep 500
+        x <= 20 || x % 2 <> 0
+
+    [<Property>]
+    let ``Failing Predicate`` (x : int) =
+        failingPredicate x
+
+    [<AsyncProperty>]
+    let ``Failing Predicate Async`` (x : int) =
+        async { return failingPredicate x }

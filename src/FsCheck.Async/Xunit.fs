@@ -7,6 +7,7 @@ open Xunit
 open Xunit.Sdk
 open Xunit.Abstractions
 
+open FsCheck.Random
 open FsCheck.Async
 
 [<AttributeUsage(AttributeTargets.Method, AllowMultiple = false)>]
@@ -14,6 +15,24 @@ open FsCheck.Async
 type public AsyncPropertyAttribute() =
     inherit FactAttribute()
     let mutable config = AsyncConfig.Default
+
+    static let parseStdGen (str: string) =
+        //if someone sets this, we want it to throw if it fails
+        let split = str.Trim('(',')').Split([|","|], StringSplitOptions.RemoveEmptyEntries)
+        let elem1 = Int32.Parse(split.[0])
+        let elem2 = Int32.Parse(split.[1])
+        StdGen (elem1,elem2)
+
+
+    ///If set, the seed to use to start testing. Allows reproduction of previous runs. You can just paste
+    ///the tuple from the output window, e.g. 12344,12312 or (123,123).
+    member __.Replay 
+        with get() = 
+            match config.Replay with
+            | None -> null
+            | Some (StdGen(x,y)) -> sprintf "(%d,%d)" x y
+
+        and set(v) = config <- { config with Replay = Some (parseStdGen v) }
 
     ///The maximum number of tests that are run.
     member __.MaxTest with get() = config.MaxTest and set(v) = config <- {config with MaxTest = v }
@@ -67,14 +86,14 @@ type AsyncPropertyTestCase(diagnosticMessageSink:IMessageSink, defaultMethodDisp
 
                     return
                         match !counterExample with
-                        | Some { StdGen = stdGen; Size = size; Shrinks = (value, Falsified) :: _ } ->
-                            let message = sprintf "Test falsified: Value=%A, StdGen=%A, Size=%d" value stdGen size
+                        | Some { StdGen = stdGen; Size = size; Shrinks = (value, Falsified) :: _ as shrinks } ->
+                            let message = sprintf "Test falsified: Value=%A, StdGen=%A, Size=%d, Shrinks=%d" value stdGen size (shrinks.Length - 1)
                             summary.Failed <- summary.Failed + 1
                             TestFailed(test, timer.Total, message, exn message) :> TestResultMessage
-                        | Some { StdGen = stdGen; Size = size; Shrinks = (value, Exception e) :: _ } ->
+                        | Some { StdGen = stdGen; Size = size; Shrinks = (value, Exception e) :: _ as shrinks } ->
                             let message = 
-                                sprintf "Test exception: %O%s Value=%A, StdGen=%A, Size=%d"
-                                                e Environment.NewLine value stdGen size
+                                sprintf "Test exception: %O%s Value=%A, StdGen=%A, Size=%d, Shrinks=%d"
+                                                e Environment.NewLine value stdGen size (shrinks.Length - 1)
 
                             summary.Failed <- summary.Failed + 1
                             TestFailed(test, timer.Total, message, exn message) :> _
