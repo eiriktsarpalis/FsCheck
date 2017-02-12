@@ -8,8 +8,23 @@ open System.Threading.Tasks
 
 open FSharp.Reflection
 
+open FsCheck
+open FsCheck.TypeClass
 open FsCheck.Async
 
+// TypeClass functionality replicated here since internal in FsCheck proper
+// NB this creates slightly different semantics when invoking `Arb.from` in
+// the current thread
+let private defaultArbitrary = 
+    let empty = FsCheck.TypeClass.TypeClass<Arbitrary<obj>>.New()
+    empty.Discover(onlyPublic=true,instancesType=typeof<FsCheck.Arb.Default>)
+
+let getArb<'TArb> (typeClasses : Type list) : Arbitrary<'TArb> =
+    let merge t (tc:TypeClass<_>) = tc.DiscoverAndMerge(onlyPublic=true,instancesType=t)
+    let tc = List.foldBack merge typeClasses defaultArbitrary
+    tc.InstanceFor<'TArb, Arbitrary<'TArb>>()
+
+/// Lifts a generic arrow instance into an asynchronous property test
 let liftPropertyTest (property : 'T -> 'S) : AsyncProperty<'T> =
     let lift prop t = async {
         let! result = async { return! prop t } |> Async.Catch
@@ -44,9 +59,9 @@ let liftPropertyTest (property : 'T -> 'S) : AsyncProperty<'T> =
     | _ -> lift (fun t -> async { return property t })
 
 
-let liftPropertyFromMethodInfo (argument : obj option) (methodInfo : MethodInfo) =
-    let argument = defaultArg argument null
-    let inputTy, valueReader = 
+/// Lifts a method info instance into an existentially packed AsyncProperty
+let liftPropertyFromMethodInfo (mkInstance : (unit -> obj) option) (methodInfo : MethodInfo) =
+    let inputTy, argReader = 
         match methodInfo.GetParameters() |> Array.map (fun p -> p.ParameterType) with
         | [||] -> typeof<unit>, fun _ -> [||]
         | [|ty|] -> ty, fun v -> [|v|]
@@ -62,7 +77,7 @@ let liftPropertyFromMethodInfo (argument : obj option) (methodInfo : MethodInfo)
     let inputShape = TypeShape.Create inputTy
     let outputShape = TypeShape.Create outputTy
 
-    // Use TypeShape to bring function arguments into scope
+    // Use TypeShape to bring function shape into scope
     inputShape.Accept {
       new IFunc<TypeShape * obj> with
         member __.Invoke<'T> () =
@@ -71,7 +86,9 @@ let liftPropertyFromMethodInfo (argument : obj option) (methodInfo : MethodInfo)
               member __.Invoke<'R> () =
                 let func =
                     fun (t:'T) -> 
-                        try methodInfo.Invoke(argument, valueReader t) :?> 'R
+                        let instance = match mkInstance with None -> null | Some b -> b()
+                        let args = argReader t
+                        try methodInfo.Invoke(instance, args) :?> 'R
                         with :? TargetInvocationException as e ->
                             ExceptionDispatchInfo.Capture(e.InnerException).Throw()
                             failwith "Should not get here - please report a bug"

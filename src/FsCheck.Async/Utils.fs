@@ -82,8 +82,8 @@ type Async with
         use enum = tasks.GetEnumerator()
         while enum.MoveNext() && isTcsUnset() do
             do! semaphore.WaitAsync ct |> Async.AwaitTaskCorrect
-
             let item = enum.Current
+
             let wrapper = async {
                 let! result = Async.Catch item
                 match result with

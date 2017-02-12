@@ -23,25 +23,42 @@ type public AsyncPropertyAttribute() =
         let elem2 = Int32.Parse(split.[1])
         StdGen (elem1,elem2)
 
+    static let unparseStdGen (StdGen(s1,s2)) = sprintf "(%d,%d)" s1 s2
+
+    let getCfg() = config.FsCheckConfig
+    let updateCfg f = config <- { config with FsCheckConfig = f config.FsCheckConfig }
+
+    ///The maximum number of shrinks to run after a counterexample was encountered
+    member __.MaxShrink with get() = config.MaxShrink and set(v) = config <- {config with MaxShrink = v}
+    ///The maximum number of random tests to run in parallel
+    member __.DegreeOfParallelism with get() = config.DegreeOfParallelism and set(d) = config <- { config with DegreeOfParallelism = d }
 
     ///If set, the seed to use to start testing. Allows reproduction of previous runs. You can just paste
     ///the tuple from the output window, e.g. 12344,12312 or (123,123).
     member __.Replay 
         with get() = 
-            match config.Replay with
+            match getCfg().Replay with
             | None -> null
-            | Some (StdGen(x,y)) -> sprintf "(%d,%d)" x y
+            | Some g -> unparseStdGen g
 
-        and set(v) = config <- { config with Replay = Some (parseStdGen v) }
-
+        and set(v) = updateCfg (fun c -> { c with Replay = Some (parseStdGen v) })
     ///The maximum number of tests that are run.
-    member __.MaxTest with get() = config.MaxTest and set(v) = config <- {config with MaxTest = v }
-    ///The maximum number of shrinks to run after a counterexample was encountered
-    member __.MaxShrinks with get() = config.MaxShrinks and set(v) = config <- {config with MaxShrinks = v}
+    member __.MaxTest with get() = getCfg().MaxTest and set(v) = updateCfg (fun c -> {c with MaxTest = v })
     ///The size to use for the first test.
-    member __.StartSize with get() = config.StartSize and set(v) = config <- {config with StartSize = v}
+    member __.StartSize with get() = getCfg().StartSize and set(v) = updateCfg (fun c -> {c with StartSize = v})
     ///The size to use for the last test, when all the tests are passing. The size increases linearly between Start- and EndSize.
-    member __.EndSize with get() = config.EndSize and set(v) = config <- {config with EndSize = v}
+    member __.EndSize with get() = getCfg().EndSize and set(v) = updateCfg (fun c -> {c with EndSize = v})
+    ///The Arbitrary instances to use for this test method. The Arbitrary instances
+    ///are merged in back to front order i.e. instances for the same generated type
+    ///at the front of the array will override those at the back.
+    member __.Arbitrary with get() = List.toArray (getCfg().Arbitrary) and set(v) = updateCfg (fun c -> {c with Arbitrary = Array.toList v})
+    ///If set, suppresses the output from the test if the test is successful. This can be useful when running tests
+    ///with TestDriven.net, because TestDriven.net pops up the Output window in Visual Studio if a test fails; thus,
+    ///when conditioned to that behaviour, it's always a bit jarring to receive output from passing tests.
+    ///The default is false, which means that FsCheck will also output test results on success, but if set to true,
+    ///FsCheck will suppress output in the case of a passing test. This setting doesn't affect the behaviour in case of
+    ///test failures.
+    member __.QuietOnSuccess with get() = getCfg().QuietOnSuccess and set(v) = updateCfg (fun c -> {c with QuietOnSuccess = v})
 
     member internal __.Config = config
 
@@ -63,21 +80,22 @@ type AsyncPropertyTestCase(diagnosticMessageSink:IMessageSink, defaultMethodDisp
             let! result = async {
                 try
                     let runMethod = this.TestMethod.Method.ToRuntimeMethod()
-                    let target =
+                    let instanceBuilder =
                         constructorArguments
                         |> Array.tryFind (fun x -> x :? TestOutputHelper)
                         |> Option.iter (fun x -> (x :?> TestOutputHelper).Initialize(messageBus, test))
 
                         let testClass = this.TestMethod.TestClass.Class.ToRuntimeType()
                         if this.TestMethod.TestClass <> null && not this.TestMethod.Method.IsStatic then
-                            Some (test.CreateTestClass(testClass, constructorArguments, messageBus, timer, cancellationTokenSource))
+                            let instance = test.CreateTestClass(testClass, constructorArguments, messageBus, timer, cancellationTokenSource)
+                            Some(fun () -> instance)
                         else None
 
                     let counterExample = ref None
                     do!
                         fun () ->
                             async { 
-                                let! res = AsyncCheck.Method(runMethod, config, ?target = target) 
+                                let! res = AsyncCheck.Method(runMethod, config, ?mkInstance = instanceBuilder) 
                                 counterExample := res }
                             |> Async.StartAsTask 
                             :> Task
@@ -86,14 +104,17 @@ type AsyncPropertyTestCase(diagnosticMessageSink:IMessageSink, defaultMethodDisp
 
                     return
                         match !counterExample with
-                        | Some { StdGen = stdGen; Size = size; Shrinks = (value, Falsified) :: _ as shrinks } ->
-                            let message = sprintf "Test falsified: Value=%A, StdGen=%A, Size=%d, Shrinks=%d" value stdGen size shrinks.Length
+                        | Some ({ Outcome = Falsified } as counter) ->
+                            let message = 
+                                sprintf "Test falsified: Value=%A, StdGen=%A, Size=%d, Shrinks=%d" 
+                                        counter.SmallestValue counter.StdGen counter.Size counter.Shrinks.Length
+
                             summary.Failed <- summary.Failed + 1
                             TestFailed(test, timer.Total, message, exn message) :> TestResultMessage
-                        | Some { StdGen = stdGen; Size = size; Shrinks = (value, Exception e) :: _ as shrinks } ->
+                        | Some ({ Outcome = Exception e } as counter) ->
                             let message = 
                                 sprintf "Test exception: %O%s Value=%A, StdGen=%A, Size=%d, Shrinks=%d"
-                                                e Environment.NewLine value stdGen size shrinks.Length
+                                    e Environment.NewLine counter.SmallestValue counter.StdGen counter.Size counter.Shrinks.Length
 
                             summary.Failed <- summary.Failed + 1
                             TestFailed(test, timer.Total, message, exn message) :> _

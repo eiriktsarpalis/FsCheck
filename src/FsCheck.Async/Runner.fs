@@ -1,7 +1,9 @@
 ﻿[<AutoOpen>]
 module internal FsCheck.Async.Runner
 
+open System
 open FsCheck
+open FsCheck.TypeClass
 open FsCheck.Random
 open FsCheck.Async
 
@@ -15,11 +17,10 @@ type CounterExample<'T> with
         { StdGen = __.StdGen ; Size = __.Size ; Value = box __.Value ; Outcome = __.Outcome ;
           Shrinks = __.Shrinks |> List.map (fun (t,s) -> box t, s) }
 
-
 let runRandomTests (config : AsyncConfig) (arb : Arbitrary<'T>) (property : AsyncProperty<'T>) = async {
-    let seed = match config.Replay with None -> newSeed() | Some s -> s
-    let initSize = float config.StartSize
-    let increaseSizeStep = float (config.EndSize - config.StartSize) / float config.MaxTest
+    let seed = match config.FsCheckConfig.Replay with None -> newSeed() | Some s -> s
+    let initSize = float config.FsCheckConfig.StartSize
+    let increaseSizeStep = float (config.FsCheckConfig.EndSize - config.FsCheckConfig.StartSize) / float config.FsCheckConfig.MaxTest
     let resize sz = sz + increaseSizeStep
 
     // generate the random items required for the test run
@@ -31,7 +32,7 @@ let runRandomTests (config : AsyncConfig) (arb : Arbitrary<'T>) (property : Asyn
 
     let seeds = 
         genSeeds initSize seed
-        |> Seq.take config.MaxTest
+        |> Seq.take config.FsCheckConfig.MaxTest
 
     // the runner segment to be run in async/parallel fashion
     let runTest (size, stdGen) = 
@@ -60,7 +61,7 @@ let rec runShrinker (config : AsyncConfig)
                     (arb : Arbitrary<'T>) (property : AsyncProperty<'T>)
                     (numShrinks : int) (state : CounterExample<'T>) = async {
 
-    if numShrinks = config.MaxShrinks then return state else
+    if config.MaxShrink |> Option.exists (fun ms -> ms >= numShrinks) then return state else
 
     let shrinkCandidates = arb.Shrinker state.SmallestValue
 
@@ -83,11 +84,11 @@ let rec runShrinker (config : AsyncConfig)
 }
 
 let runPropertyTestAsync (config : AsyncConfig option) (arb : Arbitrary<'T> option) (property : AsyncProperty<'T>) = async {
-    let arb = match arb with Some a -> a | None -> Arb.from<'T>
     let config = match config with Some c -> c | None -> AsyncConfig.Default
+    let arb = match arb with Some a -> a | None -> getArb<'T> config.FsCheckConfig.Arbitrary
     let! result = runRandomTests config arb property
     match result with
-    | Some counterExample when config.MaxShrinks > 0 ->
+    | Some counterExample when config.MaxShrink |> Option.forall(fun ms -> ms > 0) ->
         let! shrink = runShrinker config arb property 0 counterExample
         return Some shrink
 

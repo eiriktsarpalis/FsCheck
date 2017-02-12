@@ -16,8 +16,8 @@ type AsyncCheck =
         return! runPropertyTestAsync config arb func
     }
 
-    static member Method(methodInfo:MethodInfo, ?config : AsyncConfig, ?target : obj) = async {
-        let shape, func = liftPropertyFromMethodInfo target methodInfo
+    static member Method(methodInfo:MethodInfo, ?config : AsyncConfig, ?mkInstance : unit -> obj) = async {
+        let shape, func = liftPropertyFromMethodInfo mkInstance methodInfo
         return! shape.Accept { new IFunc<Async<CounterExample<obj> option>> with
             member __.Invoke<'T>() = async {
                 let! result = runPropertyTestAsync config None (func :?> AsyncProperty<'T>)

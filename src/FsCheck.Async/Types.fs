@@ -1,33 +1,29 @@
 ﻿namespace FsCheck.Async
 
+open System
+
+open FsCheck
 open FsCheck.Random
 
+//// Just like config, but with the addition of MaxShrink and DegreeOfParallelism arguments
+//
 type AsyncConfig =
     {
-        MaxTest : int
-        MaxShrinks : int
-        StartSize : int
-        EndSize : int
-        Replay : StdGen option
+        FsCheckConfig : FsCheck.Config
+        MaxShrink : int option
         DegreeOfParallelism : int
     }
 with
-    static member Default =
+    static member FromFsCheckConfig(cfg : Config) =
         {
-            MaxTest = FsCheck.Config.Default.MaxTest
-            MaxShrinks = 20
-            StartSize = FsCheck.Config.Default.StartSize
-            EndSize = FsCheck.Config.Default.EndSize
-            Replay = None
+            FsCheckConfig = cfg
+            MaxShrink = None
             DegreeOfParallelism = System.Environment.ProcessorCount * 2
         }
 
-type AsyncProperty<'T> = 'T -> Async<TestOutcome>
+    static member Default = AsyncConfig.FromFsCheckConfig Config.Default
 
-and TestOutcome =
-    | Completed
-    | Falsified
-    | Exception of exn
+type AsyncProperty<'T> = 'T -> Async<TestOutcome>
 
 and CounterExample<'T> = 
     { 
@@ -37,3 +33,8 @@ and CounterExample<'T> =
         Outcome : TestOutcome
         Shrinks : ('T * TestOutcome) list 
     }
+
+and TestOutcome =
+    | Completed
+    | Falsified
+    | Exception of exn
