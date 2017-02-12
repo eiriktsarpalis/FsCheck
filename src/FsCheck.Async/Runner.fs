@@ -9,11 +9,12 @@ type CounterExample<'T> with
     member __.SmallestValue =
         match __.Shrinks with
         | (v,_) :: _ -> v
-        | [] -> failwithf "internal error"
+        | [] -> __.Value
 
     member __.ToUntyped =
         { StdGen = __.StdGen ; Size = __.Size ; Value = box __.Value ; Outcome = __.Outcome ;
           Shrinks = __.Shrinks |> List.map (fun (t,s) -> box t, s) }
+
 
 let runRandomTests (config : AsyncConfig) (arb : Arbitrary<'T>) (property : AsyncProperty<'T>) = async {
     let seed = match config.Replay with None -> newSeed() | Some s -> s
@@ -28,24 +29,18 @@ let runRandomTests (config : AsyncConfig) (arb : Arbitrary<'T>) (property : Asyn
         yield! genSeeds (resize size) rnd1
     }
 
-    let randomItems = genSeeds initSize seed |> Seq.take config.MaxTest
+    let seeds = 
+        genSeeds initSize seed
+        |> Seq.take config.MaxTest
 
-    // perform the async test run
-    let! ct = Async.CancellationToken
-    use runner = new ThrottledNonDeterministicRunner<CounterExample<'T>>(config.DegreeOfParallelism, ct)
-    use enum = randomItems.GetEnumerator()
-    while enum.MoveNext() && not runner.IsCompleted do
-        // NB: we are intentionally only parallelizing the property run
-        //     but not the value generator to avoid exposing races
-        let size, stdGen = enum.Current
+    // the runner segment to be run in async/parallel fashion
+    let runTest (size, stdGen) = 
+        // NB value generation is intentionally lifted outside of the async block
+        //    this is to ensure consumption is made in sequential fashion and
+        //    avoid potential race conditions in generator implementations
         let value = Gen.eval size stdGen arb.Generator
-
-        let instanceRunner = async {
-            let! outcome = async {
-                try return! property value
-                with e -> return Exception e
-            }
-
+        async {
+            let! outcome = property value
             match outcome with
             | Completed -> return None
             | Falsified
@@ -55,44 +50,35 @@ let runRandomTests (config : AsyncConfig) (arb : Arbitrary<'T>) (property : Asyn
                     Value = value; Outcome = outcome ; Shrinks = [] }
         }
 
-        do! runner.Enqueue instanceRunner
-
-    return! runner.AwaitCompletion()
+    return! 
+        seeds
+        |> Seq.map runTest 
+        |> Async.ChoiceThrottled config.DegreeOfParallelism
 }
 
 let rec runShrinker (config : AsyncConfig)
                     (arb : Arbitrary<'T>) (property : AsyncProperty<'T>)
-                    (numShrinks : int) (shrink : CounterExample<'T>) = async {
+                    (numShrinks : int) (state : CounterExample<'T>) = async {
 
-    if numShrinks = config.MaxShrinks then return shrink else
+    if numShrinks = config.MaxShrinks then return state else
 
-    let shrinkCandidates = arb.Shrinker shrink.SmallestValue
+    let shrinkCandidates = arb.Shrinker state.SmallestValue
 
-    let! ct = Async.CancellationToken
-    use runner = new ThrottledNonDeterministicRunner<CounterExample<'T>>(config.DegreeOfParallelism, ct)
-    use enum = shrinkCandidates.GetEnumerator()
-    while enum.MoveNext() && not runner.IsCompleted do
-        // NB: we are intentionally only parallelizing the property run
-        //     but not the shrinker to avoid exposing races
-        let shrinkValue = enum.Current
-        let instanceRunner = async {
-            let! outcome = async { 
-                try return! property shrinkValue 
-                with e -> return Exception e
-            }
+    let runTest shrinkCandidate = async {
+        let! outcome = property shrinkCandidate
+        match outcome with
+        | Completed -> return None
+        | Falsified
+        | Exception _ -> return Some { state with Shrinks = (shrinkCandidate, outcome) :: state.Shrinks }
+    }
 
-            match outcome with
-            | Completed -> return None
-            | Falsified
-            | Exception _ -> return Some { shrink with Shrinks = (shrinkValue, outcome) :: shrink.Shrinks }
-        }
+    let! shrinkResult = 
+        shrinkCandidates 
+        |> Seq.map runTest 
+        |> Async.ChoiceThrottled config.DegreeOfParallelism
 
-        do! runner.Enqueue instanceRunner
-
-    let! shrinkSearchResult = runner.AwaitCompletion()
-
-    match shrinkSearchResult with
-    | None -> return shrink
+    match shrinkResult with
+    | None -> return state
     | Some result -> return! runShrinker config arb property numShrinks result
 }
 

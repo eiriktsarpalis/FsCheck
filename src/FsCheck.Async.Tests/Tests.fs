@@ -30,7 +30,7 @@ module FailingTests =
 
     let failingPredicate x =
         System.Threading.Thread.Sleep 500
-        x <= 20 || x % 2 <> 0
+        x <= 20 || x % 2 = 0
 
     [<Property>]
     let ``Failing Predicate`` (x : int) =

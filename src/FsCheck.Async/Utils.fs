@@ -82,42 +82,49 @@ type Async with
             |> ignore)
     }
 
-type ThrottledNonDeterministicRunner<'T>(degreeOfParallelism : int, ctoken : CancellationToken) =
-    do if degreeOfParallelism < 1 then invalidArg "degreeOfParallelism" "must be nonzero value"
-    let semaphore = new SemaphoreSlim(degreeOfParallelism)
-    let resultHolder = new TaskCompletionSource<'T>()
+    // This is the main driver for async/parallel property test runs
+    // takes a sequence of nondeterministic async workflows, running at most
+    // `degreeOfParallelism` items in parallel at a given moment
+    // Once a task completing with `Some t` is discovered, it will cause the
+    // overall workflow to complete with that result.
+    static member ChoiceThrottled (degreeOfParallelism : int) (tasks : seq<Async<'T option>>) : Async<'T option> = async {
+        do if degreeOfParallelism < 1 then invalidArg "degreeOfParallelism" "must be positive value"
+        let! ct = Async.CancellationToken
+        use cts = CancellationTokenSource.CreateLinkedTokenSource(ct)
+        let tcs = new TaskCompletionSource<'T>()
+        let isTcsUnset() = not (tcs.Task.IsCompleted || tcs.Task.IsFaulted)
+        use semaphore = new SemaphoreSlim(degreeOfParallelism)
 
-    // NB: task must be exception safe or we risk killing the process!
-    member __.Enqueue(task : Async<'T option>) = async {
-        do! semaphore.WaitAsync ctoken |> Async.AwaitTaskCorrect
-        let worker() = async {
-            try
-                let! result = task
+        use enum = tasks.GetEnumerator()
+        while enum.MoveNext() && isTcsUnset() do
+            do! semaphore.WaitAsync ct |> Async.AwaitTaskCorrect
+
+            let item = enum.Current
+            let wrapper = async {
+                let! result = Async.Catch item
                 match result with
-                | Some t -> resultHolder.TrySetResult t |> ignore
-                | None -> ()
-            finally
-                semaphore.Release() |> ignore
-        }
+                | Choice1Of2 None -> ()
+                | Choice1Of2 (Some t) ->
+                    let _ = tcs.TrySetResult t
+                    cts.Cancel()
+                | Choice2Of2 e ->
+                    let _ = tcs.TrySetException e
+                    cts.Cancel()
+            }
 
-        Async.Start(worker(), ctoken)
-        return ()
-    }
+            // start item task and ensure that semaphore 
+            // will *always* be released on task completion
+            let task = Async.StartAsTask(wrapper, cancellationToken = cts.Token)
+            let _ = task.ContinueWith(fun (_:Task<_>) -> semaphore.Release())
+            ()
 
-    member __.IsCompleted = resultHolder.Task.IsCompleted
-
-    member __.AwaitCompletion() = async {
         // ensure all child tasks have completed by
         // claiming the entire semaphore capacity
-        // for the current workflow
         for _ in 1 .. degreeOfParallelism do
-            do! semaphore.WaitAsync ctoken |> Async.AwaitTaskCorrect
+            do! semaphore.WaitAsync ct |> Async.AwaitTaskCorrect
 
-        if resultHolder.Task.IsCompleted then
-            return Some resultHolder.Task.Result
-        else
-            return None
+        if isTcsUnset() then return None
+        else 
+            let! result = Async.AwaitTaskCorrect tcs.Task
+            return Some result
     }
-
-    interface IDisposable with
-        member __.Dispose() = semaphore.Dispose()
