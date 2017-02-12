@@ -38,49 +38,33 @@ type TypeShape with
         let shape = typedefof<TypeShape<_>>.MakeGenericType [|t|]
         Activator.CreateInstance shape :?> TypeShape
 
-type private Latch() =
-    let mutable counter = 0
-    member inline __.Enter() = Interlocked.Increment &counter = 1
-
 type Async with
 
-    static member AwaitTaskCorrect (task : Task<'T>) : Async<'T> = async {
-        let! ct = Async.CancellationToken
-        return! Async.FromContinuations(fun (sc,ec,cc) ->
-            let l = new Latch()
-            let ctrDisposer = ct.Register(fun _ -> if l.Enter() then cc(OperationCanceledException()))
+    static member AwaitTaskCorrect (task : Task<'T>) : Async<'T> =
+        Async.FromContinuations(fun (sc,ec,_) ->
             task.ContinueWith(fun (task:Task<'T>) ->
-                if l.Enter() then
-                    ctrDisposer.Dispose()
-                    if task.IsFaulted then
-                        let e = task.Exception
-                        if e.InnerExceptions.Count = 1 then ec e.InnerExceptions.[0]
-                        else ec e
-                    elif task.IsCanceled then
-                        ec(TaskCanceledException())
-                    else
-                        sc task.Result)
+                if task.IsFaulted then
+                    let e = task.Exception
+                    if e.InnerExceptions.Count = 1 then ec e.InnerExceptions.[0]
+                    else ec e
+                elif task.IsCanceled then
+                    ec(TaskCanceledException())
+                else
+                    sc task.Result)
             |> ignore)
-    }
 
-    static member AwaitTaskCorrect(task : Task) : Async<unit> = async {
-        let! ct = Async.CancellationToken
-        return! Async.FromContinuations(fun (sc,ec,cc) ->
-            let l = new Latch()
-            let ctrDisposer = ct.Register(fun _ -> if l.Enter() then cc(OperationCanceledException()))
+    static member AwaitTaskCorrect(task : Task) : Async<unit> =
+        Async.FromContinuations(fun (sc,ec,_) ->
             task.ContinueWith(fun (task:Task) ->
-                if l.Enter() then
-                    ctrDisposer.Dispose()
-                    if task.IsFaulted then
-                        let e = task.Exception
-                        if e.InnerExceptions.Count = 1 then ec e.InnerExceptions.[0]
-                        else ec e
-                    elif task.IsCanceled then
-                        ec(TaskCanceledException())
-                    else
-                        sc ())
+                if task.IsFaulted then
+                    let e = task.Exception
+                    if e.InnerExceptions.Count = 1 then ec e.InnerExceptions.[0]
+                    else ec e
+                elif task.IsCanceled then
+                    ec(TaskCanceledException())
+                else
+                    sc ())
             |> ignore)
-    }
 
     // This is the main driver for async/parallel property test runs
     // takes a sequence of nondeterministic async workflows, running at most

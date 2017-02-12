@@ -48,9 +48,9 @@ let liftPropertyFromMethodInfo (argument : obj option) (methodInfo : MethodInfo)
     let argument = defaultArg argument null
     let inputTy, valueReader = 
         match methodInfo.GetParameters() |> Array.map (fun p -> p.ParameterType) with
-        | [||] -> typeof<unit>, fun _ -> [|box ()|]
+        | [||] -> typeof<unit>, fun _ -> [||]
         | [|ty|] -> ty, fun v -> [|v|]
-        | types -> 
+        | types ->
             let tupleTy = FSharpType.MakeTupleType types
             tupleTy, FSharpValue.PreComputeTupleReader tupleTy
 
@@ -62,6 +62,7 @@ let liftPropertyFromMethodInfo (argument : obj option) (methodInfo : MethodInfo)
     let inputShape = TypeShape.Create inputTy
     let outputShape = TypeShape.Create outputTy
 
+    // Use TypeShape to bring function arguments into scope
     inputShape.Accept {
       new IFunc<TypeShape * obj> with
         member __.Invoke<'T> () =
@@ -69,11 +70,11 @@ let liftPropertyFromMethodInfo (argument : obj option) (methodInfo : MethodInfo)
             new IFunc<TypeShape * obj> with
               member __.Invoke<'R> () =
                 let func =
-                    (fun (t:'T) -> 
+                    fun (t:'T) -> 
                         try methodInfo.Invoke(argument, valueReader t) :?> 'R
                         with :? TargetInvocationException as e ->
                             ExceptionDispatchInfo.Capture(e.InnerException).Throw()
-                            failwith "Should not get here - please report a bug")
+                            failwith "Should not get here - please report a bug"
                     |> liftPropertyTest
 
                 inputShape, box func

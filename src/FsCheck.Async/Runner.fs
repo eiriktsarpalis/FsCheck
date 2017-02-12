@@ -46,8 +46,8 @@ let runRandomTests (config : AsyncConfig) (arb : Arbitrary<'T>) (property : Asyn
             | Falsified
             | Exception _ -> 
                 return Some { 
-                    StdGen = stdGen ; Size = size ; 
-                    Value = value; Outcome = outcome ; Shrinks = [] }
+                    StdGen = stdGen ; Size = size ; Value = value; 
+                    Outcome = outcome ; Shrinks = [] }
         }
 
     return! 
